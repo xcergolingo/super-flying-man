@@ -168,20 +168,46 @@ function startGame(T) {
     }
     function parseLessonPayload(payload){
         if(!payload) return null;
-        if(typeof payload==='string'){ try{ payload=JSON.parse(payload); }catch{return null;} }
-        if(Array.isArray(payload)) return {concepts:payload.map(normalizeConcept).filter(Boolean)};
-        const primary=normalizeLang(payload.primaryLanguage || payload.primary || payload.baseLanguage);
-        const learning=normalizeLang(payload.learningLanguage || payload.learning || payload.targetLanguage);
-        const rows=payload.words || payload.concepts || payload.items || payload.data;
-        if(!Array.isArray(rows)) return null;
+        if(typeof payload==='string'){
+            const raw=payload.trim();
+            try{ payload=JSON.parse(raw); }
+            catch{
+                // GoLingo legacy text bridge: one or more "learning=primary" pairs.
+                return parsePaste(raw);
+            }
+        }
+        if(Array.isArray(payload)) return {concepts:payload.map(normalizeConcept).filter(c=>c&&conceptValue(c,lesson.learning))};
+        if(typeof payload!=='object') return null;
+        const primary=normalizeLang(payload.primaryLanguage || payload.primary || payload.baseLanguage || payload.nativeLanguage);
+        const learning=normalizeLang(payload.learningLanguage || payload.learning || payload.targetLanguage || payload.language);
         if(primary) lesson.primary=primary; if(learning) lesson.learning=learning;
-        return {primary,learning,concepts:rows.map(normalizeConcept).filter(Boolean)};
+        let rows=payload.words || payload.concepts || payload.items || payload.data;
+        // Accept a single GoLingo word object directly, not only {words:[...]}.
+        if(!Array.isArray(rows) && (payload.word!=null || payload.translation!=null || payload.text!=null || payload.term!=null)){
+            rows=[{
+                ...payload,
+                word: payload.word ?? payload.text ?? payload.term,
+                translation: payload.translation ?? payload.meaning ?? payload.primaryWord
+            }];
+        }
+        // Also accept words:"hola=hello" from older app links.
+        if(typeof rows==='string') return parsePaste(rows);
+        if(!Array.isArray(rows)) return null;
+        return {primary,learning,concepts:rows.map(normalizeConcept).filter(c=>c&&conceptValue(c,lesson.learning))};
     }
     function parsePaste(text){
         const raw=String(text||'').trim(); if(!raw) return null;
         if(raw[0]==='[' || raw[0]==='{'){ try{return parseLessonPayload(JSON.parse(raw));}catch(e){throw new Error('JSON could not be read.');} }
         const rows=raw.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
-        const concepts=rows.map((line,i)=>{ const parts=line.split(/\t|\s*\|\s*|\s*=>\s*/); const c={id:'pasted-'+i}; c[lesson.learning]=(parts[0]||'').trim(); if(parts[1]) c[lesson.primary]=parts.slice(1).join(' | ').trim(); return c; }).filter(c=>conceptValue(c,lesson.learning));
+        const concepts=rows.map((line,i)=>{
+            // Backward compatible: word=translation, word|translation, word=>translation, or tab.
+            // Split only on the first separator so translations can contain punctuation.
+            const match=line.match(/^(.+?)\s*(?:=>|\||\t|=)\s*(.+)$/);
+            const c={id:'pasted-'+i};
+            if(match){c[lesson.learning]=match[1].trim();c[lesson.primary]=match[2].trim();}
+            else c[lesson.learning]=line.trim();
+            return c;
+        }).filter(c=>conceptValue(c,lesson.learning));
         return {concepts};
     }
     function loadSavedReview(){ try{ const r=JSON.parse(localStorage.getItem('sfm-language-review')||'[]'); if(Array.isArray(r)) lesson.review=r; }catch{} }
@@ -841,7 +867,7 @@ function startGame(T) {
         const parsed=parseLessonPayload(payload); if(!parsed || !parsed.concepts?.length){if(announce)toast('No language words found in that data.');return false;}
         if(parsed.primary) lesson.primary=parsed.primary; if(parsed.learning) lesson.learning=parsed.learning;
         lesson.concepts=parsed.concepts; lesson.offset=0; applyLanguageTargets(true);
-        if(announce)toast(`${lesson.concepts.length} words loaded for ${LANGUAGE_META[lesson.learning].name}.`);
+        if(announce)toast(`${lesson.concepts.length} ${lesson.concepts.length===1?'word':'words'} loaded from GoLingo for ${LANGUAGE_META[lesson.learning].name}. Default words replaced.`);
         return true;
     }
     function readLaunchLesson(){
