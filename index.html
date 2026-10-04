@@ -1845,6 +1845,73 @@ function startGame(T) {
     const launchLessonLoaded=readLaunchLesson();
     if(!launchLessonLoaded && pendingLessons.length===0) applyLanguageTargets(true);
     pendingLessons.forEach(data=>importLesson(data,true));
+
+    // Canonical GoLingo bridge — same contract as Lagoon / Word Folio.
+    // Default import REPLACES the current lesson. append:true is opt-in only.
+    const golingoSend=(type,data={})=>{
+        const message={type,game:'super-flying-man',...data};
+        try{window.webkit?.messageHandlers?.golingo?.postMessage(message);}catch{}
+        return message;
+    };
+    const normalizeGoLingoPayload=(payload)=>{
+        if(typeof payload==='string'){
+            try{payload=JSON.parse(payload);}catch{return payload;}
+        }
+        return payload;
+    };
+    const importGoLingoWords=async(payload,options={})=>{
+        payload=normalizeGoLingoPayload(payload);
+        const append=!!options.append;
+        const before=append?lesson.concepts.slice():[];
+        const parsed=parseLessonPayload(payload);
+        if(!parsed?.concepts?.length){
+            const result={ok:false,count:0,error:'No words found'};
+            golingoSend('error',result); return result;
+        }
+        if(parsed.primary)lesson.primary=parsed.primary;
+        if(parsed.learning)lesson.learning=parsed.learning;
+        lesson.concepts=append?[...before,...parsed.concepts]:parsed.concepts.slice();
+        lesson.offset=0;
+        applyLanguageTargets(true);
+        const result={
+            ok:true,
+            count:parsed.concepts.length,
+            total:lesson.concepts.length,
+            append,
+            primaryLanguage:lesson.primary,
+            learningLanguage:lesson.learning,
+            words:lesson.concepts.map(c=>({
+                id:c.id,
+                word:conceptValue(c,lesson.learning),
+                translation:conceptValue(c,lesson.primary),
+                sentence:c.sentence||'',
+                sentenceTranslation:c.sentenceTranslation||''
+            }))
+        };
+        window.__SFM_IMPORT_DIAG__={received:(window.__SFM_IMPORT_DIAG__?.received||0)+1,last:payload,status:'imported',...result};
+        golingoSend('wordsImported',result);
+        toast(`${result.total} ${result.total===1?'word':'words'} loaded from GoLingo. Default words replaced.`);
+        return result;
+    };
+    window.GoLingoGame={
+        game:'super-flying-man',
+        version:'1.1.0',
+        useNativeSpeech:false,
+        allowedOrigins:[],
+        importWords:importGoLingoWords,
+        getLesson:()=>({primaryLanguage:lesson.primary,learningLanguage:lesson.learning,words:lesson.concepts.map(c=>({id:c.id,word:conceptValue(c,lesson.learning),translation:conceptValue(c,lesson.primary),sentence:c.sentence||'',sentenceTranslation:c.sentenceTranslation||''}))}),
+        getReview:()=>lesson.review.map(x=>({...x}))
+    };
+    window.GoLingoBook=window.GoLingoGame;
+    window.addEventListener('message',async e=>{
+        const d=e.data;
+        if(d?.type==='golingo:importWords'||d?.type==='GoLingoImportWords'){
+            const result=await importGoLingoWords(d.payload,d.options||{});
+            try{e.source?.postMessage({type:'golingo:importResult',...result},'*');}catch{}
+        }
+    });
+    golingoSend('ready',{version:'1.1.0',api:'GoLingoGame.importWords'});
+    window.dispatchEvent(new CustomEvent('golingo:ready',{detail:{game:'super-flying-man'}}));
     window.dispatchEvent(new CustomEvent('SuperFlyingManReady'));
     try{window.webkit?.messageHandlers?.superFlyingManReady?.postMessage({ready:true,version:3});}catch{}
     try{window.webkit?.messageHandlers?.golingo?.postMessage({type:'ready',game:'super-flying-man',version:3});}catch{}
