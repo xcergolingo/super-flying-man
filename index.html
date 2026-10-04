@@ -871,8 +871,37 @@ function startGame(T) {
         return true;
     }
     function readLaunchLesson(){
-        let raw=null;
-        try{const q=new URLSearchParams(location.search);raw=q.get('golingo')||q.get('lesson')||q.get('words'); if(!raw && location.hash.includes('=')){const h=new URLSearchParams(location.hash.slice(1));raw=h.get('golingo')||h.get('lesson')||h.get('words');} if(raw){try{raw=decodeURIComponent(raw)}catch{}; try{raw=atob(raw.replace(/-/g,'+').replace(/_/g,'/'))}catch{}; importLesson(raw,false);}}catch{}
+        try{
+            const q=new URLSearchParams(location.search);
+            const h=location.hash.includes('=')?new URLSearchParams(location.hash.slice(1)):new URLSearchParams();
+            const get=(...names)=>{for(const n of names){const v=q.get(n)??h.get(n);if(v!=null&&v!=='')return v;}return null;};
+            const primary=get('primary','primaryLanguage','baseLanguage','nativeLanguage','from','sourceLanguage');
+            const learning=get('learning','learningLanguage','targetLanguage','language','to','destinationLanguage');
+            // First accept structured/list payloads.
+            let raw=get('golingo','lesson','words','concepts','items','data');
+            if(raw){
+                let decoded=raw;
+                try{decoded=decodeURIComponent(decoded)}catch{}
+                // Only use base64 if it decodes to JSON/text that looks intentional.
+                try{const b=atob(decoded.replace(/-/g,'+').replace(/_/g,'/'));if(b&&(/[\[{=|]/.test(b)))decoded=b;}catch{}
+                if(importLesson(typeof decoded==='string'&&decoded.trim().startsWith('{')?JSON.parse(decoded):decoded,false)) return true;
+            }
+            // GoLingo single-word launch. This is the important one-word path.
+            const word=get('word','learningWord','targetWord','term','text');
+            const translation=get('translation','primaryWord','meaning','translatedWord','definition');
+            if(word){
+                return importLesson({
+                    type:'golingo.words',
+                    primary:primary||lesson.primary,
+                    learning:learning||lesson.learning,
+                    words:[{word,translation:translation||''}]
+                },false);
+            }
+            // Legacy pair can also be supplied as ?pair=hola=hello.
+            const pair=get('pair','wordPair');
+            if(pair) return importLesson({primary:primary||lesson.primary,learning:learning||lesson.learning,words:pair},false);
+        }catch(e){console.warn('GoLingo launch lesson could not be read',e);}
+        return false;
     }
     // Windborne snow wraps a box around the camera. Close flakes and long, quiet streaks coexist.
     const MAX_SNOW = 2400, snowPositions = new Float32Array(MAX_SNOW * 3), snowSpeeds = new Float32Array(MAX_SNOW), snowSizes = new Float32Array(MAX_SNOW);
@@ -1766,9 +1795,9 @@ function startGame(T) {
       clearReview:()=>{lesson.review=[];saveReview();drawReviewList();},
       exportToGoLingo
     };
-    window.addEventListener('message',e=>{const d=e.data;if(d?.type==='golingo.words'||d?.type==='super-flying-man.lesson'||d?.words||d?.concepts)importLesson(d,true);});
-    readLaunchLesson();
-    applyLanguageTargets(true);
+    window.addEventListener('message',e=>{const d=e.data;if(d?.type==='golingo.words'||d?.type==='super-flying-man.lesson'||d?.words||d?.concepts||d?.word||d?.term||d?.text)importLesson(d,true);});
+    const launchLessonLoaded=readLaunchLesson();
+    if(!launchLessonLoaded && pendingLessons.length===0) applyLanguageTargets(true);
     pendingLessons.forEach(data=>importLesson(data,true));
     window.dispatchEvent(new CustomEvent('SuperFlyingManReady'));
     try{window.webkit?.messageHandlers?.superFlyingManReady?.postMessage({ready:true,version:2});}catch{}
