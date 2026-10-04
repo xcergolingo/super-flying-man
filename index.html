@@ -157,13 +157,18 @@ function startGame(T) {
     const lesson = { primary:'en', learning:'es', concepts:DEMO_CONCEPTS.map(x=>({...x})), offset:0, review:[], cardTimer:0 };
     function normalizeLang(k){ if(!k) return null; const v=String(k).trim().toLowerCase().replace('_','-'); return LANGUAGE_ALIASES[v] || LANGUAGE_ALIASES[v.split('-')[0]] || null; }
     function conceptValue(c,lang){ return String(c?.[lang] ?? c?.translations?.[lang] ?? '').trim(); }
-    function normalizeConcept(raw,i){
-        if(typeof raw==='string') return {id:'word-'+i,[lesson.learning]:raw};
+    function normalizeConcept(raw,i,learningLang=lesson.learning,primaryLang=lesson.primary){
+        if(typeof raw==='string') return {id:'word-'+i,[learningLang]:raw};
+        if(!raw || typeof raw!=='object') return null;
         const c={id:String(raw.id || raw.key || raw.concept || 'word-'+i)};
         const src=raw.translations && typeof raw.translations==='object' ? {...raw.translations,...raw} : raw;
         for(const [k,v] of Object.entries(src)){ const code=normalizeLang(k); if(code && typeof v==='string' && v.trim()) c[code]=v.trim(); }
-        if(raw.word && !c[lesson.learning]) c[lesson.learning]=String(raw.word).trim();
-        if(raw.translation && !c[lesson.primary]) c[lesson.primary]=String(raw.translation).trim();
+        const word=raw.word ?? raw.learningWord ?? raw.targetWord ?? raw.term ?? raw.text;
+        const translation=raw.translation ?? raw.primaryWord ?? raw.meaning ?? raw.translatedWord;
+        if(word!=null && String(word).trim()) c[learningLang]=String(word).trim();
+        if(translation!=null && String(translation).trim()) c[primaryLang]=String(translation).trim();
+        if(raw.sentence!=null && String(raw.sentence).trim()) c.sentence=String(raw.sentence).trim();
+        if(raw.sentenceTranslation!=null && String(raw.sentenceTranslation).trim()) c.sentenceTranslation=String(raw.sentenceTranslation).trim();
         return c;
     }
     function parseLessonPayload(payload){
@@ -176,7 +181,7 @@ function startGame(T) {
                 return parsePaste(raw);
             }
         }
-        if(Array.isArray(payload)) return {concepts:payload.map(normalizeConcept).filter(c=>c&&conceptValue(c,lesson.learning))};
+        if(Array.isArray(payload)) return {concepts:payload.map((r,i)=>normalizeConcept(r,i,lesson.learning,lesson.primary)).filter(c=>c&&conceptValue(c,lesson.learning))};
         if(typeof payload!=='object') return null;
         const primary=normalizeLang(payload.primaryLanguage || payload.primary || payload.baseLanguage || payload.nativeLanguage);
         const learning=normalizeLang(payload.learningLanguage || payload.learning || payload.targetLanguage || payload.language);
@@ -193,7 +198,9 @@ function startGame(T) {
         // Also accept words:"hola=hello" from older app links.
         if(typeof rows==='string') return parsePaste(rows);
         if(!Array.isArray(rows)) return null;
-        return {primary,learning,concepts:rows.map(normalizeConcept).filter(c=>c&&conceptValue(c,lesson.learning))};
+        const resolvedPrimary=primary||lesson.primary, resolvedLearning=learning||lesson.learning;
+        const concepts=rows.map((r,i)=>normalizeConcept(r,i,resolvedLearning,resolvedPrimary)).filter(c=>c&&conceptValue(c,resolvedLearning));
+        return {primary:resolvedPrimary,learning:resolvedLearning,concepts};
     }
     function parsePaste(text){
         const raw=String(text||'').trim(); if(!raw) return null;
@@ -867,6 +874,7 @@ function startGame(T) {
         const parsed=parseLessonPayload(payload); if(!parsed || !parsed.concepts?.length){if(announce)toast('No language words found in that data.');return false;}
         if(parsed.primary) lesson.primary=parsed.primary; if(parsed.learning) lesson.learning=parsed.learning;
         lesson.concepts=parsed.concepts; lesson.offset=0; applyLanguageTargets(true);
+        try{window.webkit?.messageHandlers?.superFlyingManImport?.postMessage({ok:true,count:lesson.concepts.length,primaryLanguage:lesson.primary,learningLanguage:lesson.learning,words:lesson.concepts.map(c=>conceptValue(c,lesson.learning))});}catch{}
         if(announce)toast(`${lesson.concepts.length} ${lesson.concepts.length===1?'word':'words'} loaded from GoLingo for ${LANGUAGE_META[lesson.learning].name}. Default words replaced.`);
         return true;
     }
@@ -1790,6 +1798,7 @@ function startGame(T) {
     window.SuperFlyingManLanguage={
       ready:true,
       load:(data)=>importLesson(data,true),
+      getLesson:()=>({primaryLanguage:lesson.primary,learningLanguage:lesson.learning,words:lesson.concepts.map(c=>({id:c.id,word:conceptValue(c,lesson.learning),translation:conceptValue(c,lesson.primary),sentence:c.sentence||'',sentenceTranslation:c.sentenceTranslation||''}))}),
       getReview:()=>lesson.review.map(x=>({...x})),
       setLanguages:(primary,learning)=>{const p=normalizeLang(primary),l=normalizeLang(learning);if(p)lesson.primary=p;if(l)lesson.learning=l;lesson.offset=0;applyLanguageTargets(true);return {primary:lesson.primary,learning:lesson.learning};},
       clearReview:()=>{lesson.review=[];saveReview();drawReviewList();},
