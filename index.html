@@ -874,7 +874,9 @@ function startGame(T) {
         const parsed=parseLessonPayload(payload); if(!parsed || !parsed.concepts?.length){if(announce)toast('No language words found in that data.');return false;}
         if(parsed.primary) lesson.primary=parsed.primary; if(parsed.learning) lesson.learning=parsed.learning;
         lesson.concepts=parsed.concepts; lesson.offset=0; applyLanguageTargets(true);
-        try{window.webkit?.messageHandlers?.superFlyingManImport?.postMessage({ok:true,count:lesson.concepts.length,primaryLanguage:lesson.primary,learningLanguage:lesson.learning,words:lesson.concepts.map(c=>conceptValue(c,lesson.learning))});}catch{}
+        const importAck={type:'wordsImported',game:'super-flying-man',ok:true,count:lesson.concepts.length,primaryLanguage:lesson.primary,learningLanguage:lesson.learning,words:lesson.concepts.map(c=>conceptValue(c,lesson.learning))};
+        try{window.webkit?.messageHandlers?.superFlyingManImport?.postMessage(importAck);}catch{}
+        try{window.webkit?.messageHandlers?.golingo?.postMessage(importAck);}catch{}
         if(announce)toast(`${lesson.concepts.length} ${lesson.concepts.length===1?'word':'words'} loaded from GoLingo for ${LANGUAGE_META[lesson.learning].name}. Default words replaced.`);
         return true;
     }
@@ -1804,12 +1806,33 @@ function startGame(T) {
       clearReview:()=>{lesson.review=[];saveReview();drawReviewList();},
       exportToGoLingo
     };
-    window.addEventListener('message',e=>{const d=e.data;if(d?.type==='golingo.words'||d?.type==='super-flying-man.lesson'||d?.words||d?.concepts||d?.word||d?.term||d?.text)importLesson(d,true);});
+    // Same bridge contract as the working GoLingo Word Folio / Book game.
+    // GoLingo can use one integration for both games:
+    // window.GoLingoGame.importWords({primaryLanguage,learningLanguage,words:[...]})
+    window.GoLingoGame=window.GoLingoGame||{};
+    window.GoLingoGame.ready=true;
+    window.GoLingoGame.importWords=async(payload,options={})=>{
+        const ok=importLesson(payload,true);
+        const snapshot=window.SuperFlyingManLanguage.getLesson();
+        return {ok,count:ok?snapshot.words.length:0,...snapshot};
+    };
+    window.GoLingoGame.getLesson=()=>window.SuperFlyingManLanguage.getLesson();
+    window.GoLingoGame.getReview=()=>window.SuperFlyingManLanguage.getReview();
+    window.GoLingoBook=window.GoLingoGame;
+    window.addEventListener('message',e=>{
+        const d=e.data;
+        if(d?.type==='golingo:importWords'||d?.type==='GoLingoImportWords'){
+            importLesson(d.payload??d.data??d,true);
+            return;
+        }
+        if(d?.type==='golingo.words'||d?.type==='super-flying-man.lesson'||d?.words||d?.concepts||d?.word||d?.term||d?.text)importLesson(d,true);
+    });
     const launchLessonLoaded=readLaunchLesson();
     if(!launchLessonLoaded && pendingLessons.length===0) applyLanguageTargets(true);
     pendingLessons.forEach(data=>importLesson(data,true));
     window.dispatchEvent(new CustomEvent('SuperFlyingManReady'));
-    try{window.webkit?.messageHandlers?.superFlyingManReady?.postMessage({ready:true,version:2});}catch{}
+    try{window.webkit?.messageHandlers?.superFlyingManReady?.postMessage({ready:true,version:3});}catch{}
+    try{window.webkit?.messageHandlers?.golingo?.postMessage({type:'ready',game:'super-flying-man',version:3});}catch{}
     $('soundButton').onclick = () => audio.toggle();
     $('toolsMute').onclick = () => audio.toggle();
     $('pauseMute').onclick = () => audio.toggle();
