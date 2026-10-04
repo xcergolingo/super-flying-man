@@ -107,7 +107,7 @@ THE SOFTWARE.
 <aside id="sponsor" class="glass"><strong>Sponsored by GoLingoApp.com</strong><span>Collect words in the sky, then export them to GoLingo to practice them in the real world.</span><button id="sponsorExport" type="button">Export words to GoLingo ↗</button></aside>
 
 <div id="wordCard" class="glass" aria-live="polite"><div id="wordCardLearning">cielo</div><div id="wordCardPrimary">sky</div><div id="wordCardMeta">SPANISH · SAVED TO REVIEW</div></div>
-<section id="languagePanel" class="glass hidden" aria-label="Language flight"><div class="panel-head"><span>GOLINGO / LANGUAGE FLIGHT</span><button id="closeLanguage" aria-label="Close language flight">×</button></div><h2>Put the lesson in the sky.</h2><p class="lang-note">Each circle becomes a word. Fly through it to hear the learning-language word and save it to your review list.</p><div class="lang-grid"><label>Primary language<select id="primaryLanguage"></select></label><label>Learning language<select id="learningLanguage"></select></label></div><label style="display:block;margin:15px 0 0;font-size:10px">Paste words / translations<textarea id="wordData" spellcheck="false" placeholder="Learning | Primary&#10;cielo | sky&#10;río | river&#10;&#10;Or paste a JSON array with translations for many languages."></textarea></label><div class="lang-actions"><button id="loadWords">Load words</button><button id="demoWords">Demo 16</button><button id="nextWords">Next words</button></div><div id="languageStatus" class="lang-status"></div><button id="openReview" class="wide">Review saved words <span id="reviewBadge">0</span></button></section>
+<section id="languagePanel" class="glass hidden" aria-label="Language flight"><div class="panel-head"><span>GOLINGO / LANGUAGE FLIGHT</span><button id="closeLanguage" aria-label="Close language flight">×</button></div><h2>Put the lesson in the sky.</h2><p class="lang-note">Each circle becomes a word. Fly through it to hear the learning-language word and save it to your review list.</p><div class="lang-grid"><label>Primary language<select id="primaryLanguage"></select></label><label>Learning language<select id="learningLanguage"></select></label></div><label style="display:block;margin:15px 0 0;font-size:10px">Paste words / translations<textarea id="wordData" spellcheck="false" placeholder="Your imported words appear here.&#10;&#10;Or paste:&#10;水 = water&#10;船 = boat"></textarea></label><div class="lang-actions"><button id="loadWords">Load words</button><button id="demoWords">Demo 16</button><button id="nextWords">Next words</button></div><div id="languageStatus" class="lang-status"></div><button id="openReview" class="wide">Review saved words <span id="reviewBadge">0</span></button></section>
 <section id="reviewPanel" class="glass hidden" aria-label="Review words"><div class="panel-head"><span>WORDS TO LEARN LATER</span><button id="closeReview" aria-label="Close review list">×</button></div><h2>Your flight basket.</h2><p class="lang-note">Words are added automatically when you fly through their circles. Tap Speak to hear one again.</p><div id="reviewList"></div><div class="review-actions"><button id="copyReview">Copy text</button><button id="downloadReview">Download JSON</button><button id="exportGoLingo">Export to GoLingo</button><button id="clearReview">Clear list</button></div><p id="golingoExportNote"><b>Continue in the real world.</b> Export the words you collected to GoLingo, then use them for real-world speaking and practice. Sponsored by GoLingoApp.com.</p></section>
 <div id="fatal" class="overlay hidden"><section class="modal glass"><h2>The vale could not open.</h2><p id="fatalMessage">A WebGL-capable desktop browser is needed.</p><button onclick="location.reload()" class="primary">Try again</button></section></div>
 <script src="https://cdn.jsdelivr.net/npm/three@0.140.2/build/three.min.js"></script>
@@ -851,11 +851,24 @@ function startGame(T) {
         updateLanguageStatus(); drawReviewList();
     }
 
+    function syncWordsEditor(){
+        const box=$('wordData'); if(!box) return;
+        box.value=lesson.concepts
+          .filter(c=>conceptValue(c,lesson.learning))
+          .map(c=>{
+              const word=conceptValue(c,lesson.learning);
+              const translation=conceptValue(c,lesson.primary);
+              return translation?`${word} = ${translation}`:word;
+          }).join('\n');
+        $('primaryLanguage').value=lesson.primary;
+        $('learningLanguage').value=lesson.learning;
+    }
     function updateLanguageStatus(){
         const total=lesson.concepts.filter(c=>conceptValue(c,lesson.learning)).length;
         const from=total?lesson.offset+1:0, to=Math.min(total,lesson.offset+route.length);
         $('languageStatus').innerHTML=`<b>${LANGUAGE_META[lesson.learning].name}</b> in the sky · ${LANGUAGE_META[lesson.primary].name} translation<br>${total} words loaded · showing ${from}–${to || 0}`;
         $('primaryLanguage').value=lesson.primary; $('learningLanguage').value=lesson.learning;
+        syncWordsEditor();
     }
     function addToReview(m){
         if(!m.concept) return;
@@ -878,7 +891,7 @@ function startGame(T) {
         $('wordCard').classList.add('show'); lesson.cardTimer=performance.now()+3300;
     }
     function openLanguage(show=true){
-        $('languagePanel').classList.toggle('hidden',!show); if(show){$('reviewPanel').classList.add('hidden'); showTools(false); state.paused=true;} else state.paused=false;
+        $('languagePanel').classList.toggle('hidden',!show); if(show){syncWordsEditor();$('reviewPanel').classList.add('hidden'); showTools(false); state.paused=true;} else state.paused=false;
     }
     function openReviewPanel(show=true){
         $('reviewPanel').classList.toggle('hidden',!show); if(show){$('languagePanel').classList.add('hidden');showTools(false);drawReviewList();state.paused=true;} else state.paused=false;
